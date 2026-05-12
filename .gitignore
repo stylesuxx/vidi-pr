@@ -27,5 +27,10 @@ venv/
 .idea/
 *.swp
 
+# Local SQLite databases (created by `alembic` CLI with the default URL, etc.)
+*.db
+*.db-shm
+*.db-wal
+
 # Claude Code local settings
 .claude/settings.local.json
