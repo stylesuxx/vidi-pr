@@ -7,6 +7,7 @@ from typing import Any, Literal, Self
 
 from githubkit import GitHub
 from githubkit.auth import AppInstallationAuthStrategy
+from githubkit.cache import MemCacheStrategy
 from githubkit.exception import RequestFailed
 
 from vidi_pr.config.repo import FetchResult, RepoConfigFetcher
@@ -35,6 +36,7 @@ class GitHubClient:
         self._app_id = app_id
         self._private_key = private_key
         self._timeout = timeout
+        self._cache_strategy = MemCacheStrategy()
         self._installations: dict[int, GitHub[AppInstallationAuthStrategy]] = {}
 
     async def __aenter__(self) -> Self:
@@ -49,9 +51,6 @@ class GitHubClient:
         await self.aclose()
 
     async def aclose(self) -> None:
-        for client in self._installations.values():
-            await client.__aexit__(None, None, None)
-
         self._installations.clear()
 
     def for_installation(self, installation_id: int) -> RepoConfigFetcher:
@@ -80,7 +79,7 @@ class GitHubClient:
     ) -> list[ChangedFile]:
         owner, name = _split_repo(repo)
         gh = self._gh(installation_id)
-        entries: AsyncIterator[Any] = gh.paginate(
+        entries: AsyncIterator[Any] = gh.rest.paginate(
             gh.rest.pulls.async_list_files,
             owner=owner,
             repo=name,
@@ -107,7 +106,7 @@ class GitHubClient:
     ) -> list[ConversationComment]:
         owner, name = _split_repo(repo)
         gh = self._gh(installation_id)
-        comments: AsyncIterator[Any] = gh.paginate(
+        comments: AsyncIterator[Any] = gh.rest.paginate(
             gh.rest.issues.async_list_comments,
             owner=owner,
             repo=name,
@@ -242,7 +241,11 @@ class GitHubClient:
             private_key=self._private_key,
             installation_id=installation_id,
         )
-        github = GitHub(strategy, timeout=self._timeout)
+        github = GitHub(
+            strategy,
+            timeout=self._timeout,
+            cache_strategy=self._cache_strategy,
+        )
         self._installations[installation_id] = github
 
         return github
@@ -269,9 +272,7 @@ class GitHubClient:
             raise _map_error(exc) from exc
 
     async def _drop_cached(self, installation_id: int) -> None:
-        cached = self._installations.pop(installation_id, None)
-        if cached is not None:
-            await cached.__aexit__(None, None, None)
+        self._installations.pop(installation_id, None)
 
 
 class _InstallationFetcher:
