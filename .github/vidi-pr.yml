@@ -1,7 +1,11 @@
+# Per-repo configuration for the vidi-pr reviewer running against this repo.
+# See README.md for the full schema reference.
+
 enabled: true
 
 allowed_users:
   - stylesuxx
+
 allowed_associations: [OWNER, COLLABORATOR]
 
 review:

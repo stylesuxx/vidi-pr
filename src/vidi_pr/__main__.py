@@ -26,11 +26,7 @@ def _run_migrations(db_url: str) -> None:
     command.upgrade(config, "head")
 
 
-async def _serve() -> None:
-    operator_config = OperatorConfig.load()
-    setup_logging(operator_config.logging)
-    _run_migrations(make_database_url(operator_config.storage.db_path))
-
+async def _serve(operator_config: OperatorConfig) -> None:
     database = await Database.open(operator_config.storage.db_path)
     private_key = operator_config.github.private_key_path.read_text(encoding="utf-8")
     github_client = GitHubClient(
@@ -104,7 +100,13 @@ async def _serve() -> None:
 
 
 def main() -> None:
-    asyncio.run(_serve())
+    operator_config = OperatorConfig.load()
+    setup_logging(operator_config.logging)
+    # Run Alembic synchronously before entering the asyncio loop; the env.py
+    # uses `asyncio.run()` internally, which would nest if called from inside
+    # an active loop.
+    _run_migrations(make_database_url(operator_config.storage.db_path))
+    asyncio.run(_serve(operator_config))
 
 
 if __name__ == "__main__":
