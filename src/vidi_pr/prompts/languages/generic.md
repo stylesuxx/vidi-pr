@@ -1,0 +1,5 @@
+- Treat inputs from outside the system as untrusted; validate at the boundary.
+- Avoid hidden global state; pass dependencies explicitly.
+- Errors are explicit; never silently swallow exceptions or ignore return codes.
+- Naming should reveal intent; abbreviations are a smell unless universally known.
+- Concurrency: define ownership of shared data; assume no global mutex is implicit.

@@ -1,0 +1,5 @@
+- Quote variable expansions: `"$var"`, not `$var`. Same for `"$@"` over `$@`.
+- Open scripts with `set -euo pipefail` (or document why one of the flags is disabled).
+- Use `[[ ... ]]` rather than `[ ... ]` for tests; the former handles unset vars and pattern matching more safely.
+- Check command return codes; do not assume success in pipelines without `pipefail`.
+- Reach for trap-based cleanup when temp files or background processes are involved.

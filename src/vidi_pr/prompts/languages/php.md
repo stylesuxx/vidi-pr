@@ -1,0 +1,5 @@
+- Parameterize all queries; never interpolate user input into SQL strings.
+- Use `===` and `!==` for value+type comparison; reserve `==` for intentional coercion.
+- Prefer the null-coalescing `??` operator over ternaries for default values.
+- Declare strict types (`declare(strict_types=1);`) and explicit return types on every function.
+- Sanitize all output going to the browser; the framework's escaping helpers are the default.

@@ -61,12 +61,7 @@ class FetchResult:
 
 
 class RepoConfigFetcher(Protocol):
-    """
-    Fetches text files from a GitHub repo at a given ref.
-
-    TODO: Phase 5's `GitHubClient` will implement this. Phase 2 tests provide a
-          fake.
-    """
+    """Fetches text files from a GitHub repo at a given ref."""
 
     async def fetch_text(
         self, repo: str, ref: str, path: str, *, etag: str | None = None
@@ -92,12 +87,10 @@ class ReviewConfig(BaseModel):
 
         path = PurePosixPath(value)
         if path.is_absolute():
-            msg = "project_context_file must be a relative path"
-            raise ValueError(msg)
+            raise ValueError("project_context_file must be a relative path")
 
         if any(part == ".." for part in path.parts):
-            msg = "project_context_file cannot contain '..' segments"
-            raise ValueError(msg)
+            raise ValueError("project_context_file cannot contain '..' segments")
 
         return value
 
@@ -176,21 +169,20 @@ class RepoConfigLoader:
         try:
             data = yaml.safe_load(text)
         except yaml.YAMLError as exc:
-            msg = f"per-repo config is not valid YAML: {exc}"
-            raise RepoConfigError(msg) from exc
+            raise RepoConfigError(f"per-repo config is not valid YAML: {exc}") from exc
 
         if data is None:
             data = {}
 
         if not isinstance(data, dict):
-            msg = f"per-repo config must be a YAML mapping, not {type(data).__name__}"
-            raise RepoConfigError(msg)
+            raise RepoConfigError(
+                f"per-repo config must be a YAML mapping, not {type(data).__name__}"
+            )
 
         try:
             return RepoConfig.model_validate(data)
         except ValidationError as exc:
-            msg = f"per-repo config failed validation: {exc}"
-            raise RepoConfigError(msg) from exc
+            raise RepoConfigError(f"per-repo config failed validation: {exc}") from exc
 
     async def _resolve_project_context(self, repo: str, ref: str, config: RepoConfig) -> RepoConfig:
         path = config.review.project_context_file

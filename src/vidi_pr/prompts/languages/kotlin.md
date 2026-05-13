@@ -1,0 +1,5 @@
+- Prefer `val` over `var`; declare mutability deliberately.
+- Use safe-call `?.` and Elvis `?:` for nullability; avoid `!!` outside tests.
+- Prefer extension functions over utility classes when the receiver is the natural subject.
+- Coroutines run on the dispatcher you pick; never `runBlocking` outside `main` or tests.
+- Data classes auto-generate `equals` / `hashCode`; keep them in mind when mutating fields.

@@ -1,0 +1,1 @@
+Flag substantive issues across correctness, security, design, and consistency. Suppress trivial nits when material findings exist. When nothing material is found, surface 1-3 small nits or compliments so the review is never empty.

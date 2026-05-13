@@ -1,0 +1,5 @@
+- Prefer `===` over `==`; flag any intentional coercion explicitly.
+- Use `const` and `let`, not `var`.
+- Every Promise chain needs a `.catch` or must be `await`ed inside try/catch.
+- DOM event listeners and intervals should be torn down when the owning component unmounts.
+- Watch for shared-mutable-state bugs in modules with top-level `let`.

@@ -1,0 +1,1 @@
+Surface only clear bugs, security issues, or correctness defects. Skip style preferences and minor design notes. When the change looks fine, say so briefly in Summary and use Positives to acknowledge it.

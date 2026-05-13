@@ -1,0 +1,5 @@
+- Prefer RAII over manual `new` / `delete`.
+- Use `std::unique_ptr` / `std::shared_ptr` to express ownership; raw pointers are non-owning.
+- Take parameters by value or rvalue reference when ownership transfers; by `const` reference when it does not.
+- Use `auto` in iterator-heavy loops; explicit types in public function signatures.
+- Watch for implicit conversions in constructors; mark single-argument constructors `explicit`.

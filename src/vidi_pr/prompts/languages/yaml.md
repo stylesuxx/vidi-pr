@@ -1,0 +1,5 @@
+- Indentation is spaces only; tabs are an error.
+- Quote strings that start with `:`, `-`, `*`, `&`, `!`, or that look like booleans (`yes`, `no`, `on`, `off`, `true`, `false`).
+- Anchors and aliases (`&name` / `*name`) reduce duplication but are easy to break - rename carefully.
+- Multi-document files (`---` separators) need explicit handling at the loader level.
+- Schema-style comments don't substitute for validation; rely on the consuming application's schema.

@@ -1,0 +1,6 @@
+- Business logic belongs in services, not in `.module` files. Hooks are dispatch glue, not implementation.
+- Use the entity API (`Drupal::entityTypeManager()`) instead of direct DB access (`db_query`, `Database::getConnection`).
+- Render arrays must be cache-safe: declare cache tags, contexts, and max-age explicitly.
+- Forms go through the Form API; never produce HTML by string concatenation.
+- Permissions are checked via `AccessResult`; never assume a route's `_permission` is sufficient inside controllers.
+- Configuration changes need accompanying update hooks (`hook_update_N`) and config export.

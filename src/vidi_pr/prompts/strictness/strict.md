@@ -1,0 +1,1 @@
+Apply close scrutiny: correctness, security, design, naming, readability, test coverage, and adherence to project conventions noted in the project context. Call out drift from those conventions explicitly.

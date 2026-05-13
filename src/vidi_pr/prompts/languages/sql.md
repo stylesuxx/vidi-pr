@@ -1,0 +1,5 @@
+- Always parameterize queries; never concatenate user input into the query string.
+- Use `IS NULL` / `IS NOT NULL` for null comparisons; `= NULL` returns unknown, never true.
+- Inspect `EXPLAIN` output before adding or removing an index in a migration.
+- Be explicit about transaction isolation when behavior depends on it.
+- Migrations should be reversible where feasible; document irreversibility otherwise.

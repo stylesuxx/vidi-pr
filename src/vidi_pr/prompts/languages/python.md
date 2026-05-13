@@ -1,0 +1,6 @@
+- Public functions, methods, and classes should carry type hints; `mypy --strict` expects them.
+- Async functions must never call blocking I/O; use the async equivalent of any library that supports one.
+- Avoid mutable default arguments (`def f(x=[])`).
+- Prefer `pathlib.Path` over raw string paths for file operations.
+- Use `enum.StrEnum` for fixed string sets that flow through serialization.
+- Catch the narrowest possible exception type; never bare `except:`.

@@ -46,8 +46,9 @@ class MockLLMClient:
             )
         )
         if self._cursor >= len(self._responses):
-            msg = f"MockLLMClient exhausted after {len(self._responses)} scripted response(s)"
-            raise LLMError(msg)
+            raise LLMError(
+                f"MockLLMClient exhausted after {len(self._responses)} scripted response(s)"
+            )
 
         response = self._responses[self._cursor]
         self._cursor += 1

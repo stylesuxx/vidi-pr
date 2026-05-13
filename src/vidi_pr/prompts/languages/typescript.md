@@ -1,0 +1,5 @@
+- Avoid `any`; use `unknown` and narrow with type guards or `instanceof`.
+- Use discriminated unions over flag fields for tagged data.
+- Mark React component props `Readonly` where mutation is not intended.
+- Prefer `as const` to lock literal arrays and objects to their narrowest type.
+- Watch for implicit `undefined` in optional chaining when downstream code expects a defined value.

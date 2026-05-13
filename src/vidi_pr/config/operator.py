@@ -71,8 +71,7 @@ class ServerConfig(BaseModel):
             elif isinstance(item, str):
                 parsed.append(ip_network(item, strict=False))
             else:
-                msg = f"forwarded_allow_ips entries must be CIDR strings, got {item!r}"
-                raise ValueError(msg)
+                raise ValueError(f"forwarded_allow_ips entries must be CIDR strings, got {item!r}")
 
         return parsed
 
@@ -161,17 +160,18 @@ class OperatorConfig(BaseSettings):
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as exc:
-            msg = f"operator config not readable at {path}: {exc}"
-            raise OperatorConfigError(msg) from exc
+            raise OperatorConfigError(f"operator config not readable at {path}: {exc}") from exc
 
         try:
             data = yaml.safe_load(text) or {}
         except yaml.YAMLError as exc:
-            msg = f"operator config at {path} is not valid YAML: {exc}"
-            raise OperatorConfigError(msg) from exc
+            raise OperatorConfigError(
+                f"operator config at {path} is not valid YAML: {exc}"
+            ) from exc
 
         if not isinstance(data, dict):
-            msg = f"operator config at {path} must be a YAML mapping, not {type(data).__name__}"
-            raise OperatorConfigError(msg)
+            raise OperatorConfigError(
+                f"operator config at {path} must be a YAML mapping, not {type(data).__name__}"
+            )
 
         return cls(**data)

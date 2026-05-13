@@ -1,0 +1,5 @@
+- Bounds-check `size` before any `memcpy` / `strcpy` / `memmove`.
+- Pair `malloc` / `free` in the same scope where possible; document ownership transfers.
+- Prefer `strncpy` / `snprintf` with explicit size arguments over the unbounded variants.
+- Integer overflow on size arithmetic: check before multiplying when allocating buffers.
+- Initialize stack variables; do not rely on zero by accident.
