@@ -27,6 +27,17 @@ class TriggerKind(StrEnum):
     COMMENT = "comment"
 
 
+class JobStatusDetail(StrEnum):
+    INTERRUPTED_BY_RESTART = "interrupted_by_restart"
+    TIMEOUT = "timeout"
+    NO_REVIEWABLE_FILES = "no_reviewable_files"
+    DRAFTED_AFTER_EVENT = "drafted_after_event"
+    PR_CLOSED = "pr_closed"
+    PARSE_FAILED = "parse_failed"
+    LLM_FAILURE = "llm_failure"
+    GITHUB_FAILURE = "github_failure"
+
+
 def _string_enum(enum_class: type[StrEnum], length: int = 16) -> SAEnum:
     return SAEnum(
         enum_class,
@@ -88,3 +99,11 @@ class ReviewPosted(Base):
     posted_at: Mapped[datetime] = mapped_column(DateTime)
     duration_ms: Mapped[int]
     chunk_count: Mapped[int]
+
+
+class FailureCooldown(Base):
+    __tablename__ = "failure_cooldowns"
+
+    repo: Mapped[str] = mapped_column(primary_key=True)
+    pr_number: Mapped[int] = mapped_column(primary_key=True)
+    last_posted_at: Mapped[datetime] = mapped_column(DateTime)

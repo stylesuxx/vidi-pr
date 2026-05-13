@@ -84,3 +84,11 @@ class RepoInfo(BaseModel):
     full_name: str
     default_branch: str
     private: bool
+
+
+class PRContent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pr: PRInfo
+    files: list[ChangedFile]
+    conversation: list[ConversationComment]

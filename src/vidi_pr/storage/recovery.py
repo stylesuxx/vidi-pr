@@ -1,10 +1,15 @@
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from vidi_pr.models.storage import TERMINAL_JOB_STATUSES, Job, JobStatus, PrLock
+from vidi_pr.models.storage import (
+    TERMINAL_JOB_STATUSES,
+    Job,
+    JobStatus,
+    JobStatusDetail,
+    PrLock,
+)
 from vidi_pr.storage.db import rowcount, utcnow
 
-INTERRUPTED_DETAIL = "interrupted_by_restart"
 INTERRUPTED_ERROR = "interrupted by service restart"
 
 
@@ -15,7 +20,7 @@ async def recover_on_startup(session: AsyncSession) -> int:
         .where(Job.status == JobStatus.RUNNING)
         .values(
             status=JobStatus.FAILED,
-            status_detail=INTERRUPTED_DETAIL,
+            status_detail=JobStatusDetail.INTERRUPTED_BY_RESTART,
             error=func.coalesce(Job.error, INTERRUPTED_ERROR),
             updated_at=utcnow(),
         )

@@ -85,9 +85,17 @@ def upgrade() -> None:
         sa.Column("received_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("delivery_id"),
     )
+    op.create_table(
+        "failure_cooldowns",
+        sa.Column("repo", sa.String(), nullable=False),
+        sa.Column("pr_number", sa.Integer(), nullable=False),
+        sa.Column("last_posted_at", sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint("repo", "pr_number"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_table("failure_cooldowns")
     op.drop_table("webhook_deliveries")
     op.drop_table("reviews_posted")
     op.drop_table("pr_locks")

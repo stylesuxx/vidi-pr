@@ -1,9 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from vidi_pr.models.storage import JobStatus, JobType, TriggerKind
+from vidi_pr.models.storage import JobStatus, JobStatusDetail, JobType, TriggerKind
 from vidi_pr.storage.jobs import fetch_job, insert_job, update_job_status
 from vidi_pr.storage.locks import acquire_lock, fetch_lock
-from vidi_pr.storage.recovery import INTERRUPTED_DETAIL, recover_on_startup
+from vidi_pr.storage.recovery import recover_on_startup
 
 
 async def _seed_running_job(session: AsyncSession, *, pr_number: int = 1) -> int:
@@ -29,7 +29,7 @@ async def test_running_jobs_become_failed_with_interrupt_detail(session: AsyncSe
     fetched = await fetch_job(session, job_id)
     assert fetched is not None
     assert fetched.status == JobStatus.FAILED
-    assert fetched.status_detail == INTERRUPTED_DETAIL
+    assert fetched.status_detail == JobStatusDetail.INTERRUPTED_BY_RESTART
     assert fetched.error is not None
     assert await fetch_lock(session, repo="o/r", pr_number=1) is None
 
