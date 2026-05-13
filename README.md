@@ -40,6 +40,45 @@ development dependencies pinned in `uv.lock`.
 The same checks (`ruff check`, `ruff format --check`, `mypy src`, `pytest`) run
 in CI on every push and pull request.
 
+## Running the service
+
+The webhook receiver is started via the module entrypoint:
+
+```sh
+uv run python -m vidi_pr
+```
+
+On startup the service:
+
+1. Loads operator configuration (see below).
+2. Runs database migrations (Alembic, `head`).
+3. Binds the FastAPI server to `server.host:server.port` from the operator
+   config (default `127.0.0.1:8080`).
+4. Accepts webhooks on `POST /webhook` and exposes `GET /healthz`.
+
+For local development you typically expose `127.0.0.1:8080` to GitHub by way
+of an SSH reverse tunnel, your existing reverse proxy, or a temporary tunnel
+service. The production deployment terminates TLS at Traefik (covered in the
+deployment guide once it lands).
+
+### Registering the GitHub App
+
+1. Create a new GitHub App in your account or organization settings.
+2. Set the webhook URL to wherever the service is reachable, e.g.
+   `https://vidi-pr.example.com/webhook`.
+3. Generate a webhook secret and put it in the `VIDI_PR_WEBHOOK_SECRET`
+   environment variable.
+4. Grant the App these repository permissions:
+   - **Contents**: Read
+   - **Issues**: Read & write
+   - **Pull requests**: Read & write
+   - **Metadata**: Read
+5. Subscribe the App to two webhook events: **Pull request** and
+   **Issue comment**.
+6. Generate a private key, save the `.pem` file on the host, and point
+   `github.private_key_path` in the YAML config at it.
+7. Install the App on the repositories you want reviewed.
+
 ## Configuration
 
 The reviewer has two completely separate configuration surfaces.

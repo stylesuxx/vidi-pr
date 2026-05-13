@@ -19,3 +19,15 @@ class GitHubTransientError(GitHubError):
 
 class GitHubPermanentError(GitHubError):
     pass
+
+
+class WebhookError(VidiPrError):
+    pass
+
+
+class WebhookAuthError(WebhookError):
+    pass
+
+
+class WebhookBadRequest(WebhookError):
+    pass
