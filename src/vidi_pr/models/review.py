@@ -76,3 +76,11 @@ class ParsedReview(BaseModel):
     positives: str
     raw: str
     parse_failed: bool = False
+
+
+class RepoInfo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    full_name: str
+    default_branch: str
+    private: bool
