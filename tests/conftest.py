@@ -19,7 +19,7 @@ async def database(tmp_path: Path) -> AsyncIterator[Database]:
     try:
         yield db
     finally:
-        await db.close()
+        await db.aclose()
 
 
 @pytest_asyncio.fixture

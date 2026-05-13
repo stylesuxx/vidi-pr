@@ -8,10 +8,11 @@ from alembic import command
 from alembic.config import Config as AlembicConfig
 
 from vidi_pr.config.operator import OperatorConfig
+from vidi_pr.orchestration.handlers import OrchestrationHandler
 from vidi_pr.storage.db import Database, make_database_url
+from vidi_pr.transport.github_client import GitHubClient
 from vidi_pr.transport.logging_setup import setup_logging
 from vidi_pr.transport.server import create_app
-from vidi_pr.transport.webhook import LoggingEventHandler
 
 
 def _run_migrations(db_url: str) -> None:
@@ -28,11 +29,21 @@ async def _serve() -> None:
     _run_migrations(make_database_url(operator_config.storage.db_path))
 
     database = await Database.open(operator_config.storage.db_path)
+    private_key = operator_config.github.private_key_path.read_text(encoding="utf-8")
+    github_client = GitHubClient(
+        app_id=operator_config.github.app_id,
+        private_key=private_key,
+    )
     try:
+        handler = OrchestrationHandler(
+            client=github_client,
+            database=database,
+            defaults=operator_config.defaults,
+        )
         app = create_app(
             config=operator_config,
             database=database,
-            handler=LoggingEventHandler(),
+            handler=handler,
         )
         server = uvicorn.Server(
             uvicorn.Config(
@@ -48,7 +59,8 @@ async def _serve() -> None:
         )
         await server.serve()
     finally:
-        await database.close()
+        await github_client.aclose()
+        await database.aclose()
 
 
 def main() -> None:

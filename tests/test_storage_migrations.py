@@ -49,7 +49,7 @@ async def test_upgrade_creates_business_tables(tmp_path: Path) -> None:
         indexes = await _index_names(database, "jobs")
         assert "jobs_status_created_at_idx" in indexes
     finally:
-        await database.close()
+        await database.aclose()
 
 
 async def test_upgrade_is_idempotent(tmp_path: Path) -> None:
@@ -71,4 +71,4 @@ async def test_downgrade_drops_business_tables(tmp_path: Path) -> None:
         assert "reviews_posted" not in tables
         assert "webhook_deliveries" not in tables
     finally:
-        await database.close()
+        await database.aclose()

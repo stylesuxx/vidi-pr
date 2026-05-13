@@ -62,7 +62,7 @@ class Database:
 
         return cls(engine, sessionmaker)
 
-    async def close(self) -> None:
+    async def aclose(self) -> None:
         await self._engine.dispose()
 
     @property
