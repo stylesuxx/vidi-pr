@@ -80,6 +80,126 @@ async def test_optional_fields_are_omitted_when_unset(httpx_mock: HTTPXMock) -> 
     assert "response_format" not in body
 
 
+async def test_extra_body_is_merged_into_request_payload(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=_ENDPOINT, json=_success_body())
+
+    client = OpenAICompatClient(
+        base_url=_BASE_URL,
+        model=_MODEL,
+        retry_initial_delay=0.0,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}, "top_p": 0.9},
+    )
+    async with client:
+        await client.chat([Message(role=Role.USER, content="hi")])
+
+    request = httpx_mock.get_request()
+    assert request is not None
+    body = httpx.Response(200, content=request.content).json()
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert body["top_p"] == 0.9
+
+
+async def test_typed_fields_override_extra_body_on_conflict(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=_ENDPOINT, json=_success_body())
+
+    client = OpenAICompatClient(
+        base_url=_BASE_URL,
+        model=_MODEL,
+        retry_initial_delay=0.0,
+        extra_body={"temperature": 1.5},
+    )
+    async with client:
+        await client.chat([Message(role=Role.USER, content="hi")], temperature=0.1)
+
+    request = httpx_mock.get_request()
+    assert request is not None
+    body = httpx.Response(200, content=request.content).json()
+    assert body["temperature"] == 0.1
+
+
+async def test_reasoning_content_and_finish_reason_are_parsed(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        url=_ENDPOINT,
+        json={
+            "model": _MODEL,
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "final answer",
+                        "reasoning_content": "step-by-step thinking",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+        },
+    )
+
+    async with _client() as client:
+        response = await client.chat([Message(role=Role.USER, content="hi")])
+
+    assert response.content == "final answer"
+    assert response.reasoning_content == "step-by-step thinking"
+    assert response.finish_reason == "stop"
+
+
+async def test_response_without_reasoning_fields_has_safe_defaults(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=_ENDPOINT, json=_success_body())
+
+    async with _client() as client:
+        response = await client.chat([Message(role=Role.USER, content="hi")])
+
+    assert response.reasoning_content == ""
+    assert response.finish_reason is None
+
+
+async def test_list_models_returns_ids(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        url=f"{_BASE_URL}/models",
+        json={
+            "object": "list",
+            "data": [
+                {"id": "qwen2.5-coder-7b-instruct-q4_k_m.gguf", "object": "model"},
+                {"id": "qwen3.5-4b-q4_k_m.gguf", "object": "model"},
+            ],
+        },
+    )
+
+    async with _client() as client:
+        models = await client.list_models()
+
+    assert models == [
+        "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+        "qwen3.5-4b-q4_k_m.gguf",
+    ]
+
+
+async def test_list_models_returns_empty_list_when_data_missing(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=f"{_BASE_URL}/models", json={"object": "list"})
+
+    async with _client() as client:
+        models = await client.list_models()
+
+    assert models == []
+
+
+async def test_list_models_raises_transient_on_5xx(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=f"{_BASE_URL}/models", status_code=503, text="oops")
+
+    async with _client() as client:
+        with pytest.raises(LLMTransientError):
+            await client.list_models()
+
+
+async def test_list_models_raises_permanent_on_4xx(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=f"{_BASE_URL}/models", status_code=401, text="nope")
+
+    async with _client() as client:
+        with pytest.raises(LLMPermanentError):
+            await client.list_models()
+
+
 async def test_response_format_passes_through(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(url=_ENDPOINT, json=_success_body())
 

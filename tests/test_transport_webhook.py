@@ -9,6 +9,7 @@ import httpx
 import pytest_asyncio
 from githubkit.webhooks import sign as sign_webhook
 from httpx import ASGITransport
+from pydantic import SecretStr
 
 from vidi_pr.config.operator import (
     DefaultsConfig,
@@ -54,7 +55,7 @@ def _operator_config(db_path: Path) -> OperatorConfig:
         logging=LoggingConfig(),
         pipeline=PipelineConfig(),
         defaults=DefaultsConfig(),
-        webhook_secret=_SECRET,
+        webhook_secret=SecretStr(_SECRET),
     )
 
 

@@ -27,6 +27,7 @@ async def _index_names(database: Database, table: str) -> set[str]:
 
         def _gather(sync_conn: object) -> set[str]:
             inspector = inspect(sync_conn)
+            assert inspector is not None
             return {idx["name"] for idx in inspector.get_indexes(table) if idx["name"]}
 
         return await conn.run_sync(_gather)

@@ -61,23 +61,70 @@ of an SSH reverse tunnel, your existing reverse proxy, or a temporary tunnel
 service. The production deployment terminates TLS at Traefik (covered in the
 deployment guide once it lands).
 
+The default `server.host` of `127.0.0.1` only accepts connections from the
+same machine. If your reverse proxy lives on another host on the LAN (the
+expected topology when Traefik is on a separate box), set `server.host` to
+`0.0.0.0` (or the specific LAN address you want to listen on) and constrain
+`server.forwarded_allow_ips` to the proxy's IP range so uvicorn only honors
+`X-Forwarded-For` from there. The HMAC signature on `/webhook` is checked
+regardless, but lock down the network surface anyway.
+
 ### Registering the GitHub App
 
 1. Create a new GitHub App in your account or organization settings.
-2. Set the webhook URL to wherever the service is reachable, e.g.
-   `https://vidi-pr.example.com/webhook`.
-3. Generate a webhook secret and put it in the `VIDI_PR_WEBHOOK_SECRET`
-   environment variable.
-4. Grant the App these repository permissions:
+2. Webhook URL: a publicly reachable URL ending in `/webhook`, e.g.
+   `https://vidi-pr.example.com/webhook`. GitHub `POST`s every event there.
+3. Webhook secret: generate a random, high-entropy string yourself (for
+   example `openssl rand -hex 32`) and paste it into the App's secret
+   field. The same value must appear in **both** places:
+   - the App's webhook secret field on GitHub,
+   - the `VIDI_PR_WEBHOOK_SECRET` environment variable wherever the service
+     runs.
+   Mismatch produces HTTP 401 at `/webhook` and is the most common
+   "nothing happens" failure mode.
+4. Under *Permissions & events* → **Repository permissions** (not
+   *Organization* or *Account*), grant:
    - **Contents**: Read
    - **Issues**: Read & write
    - **Pull requests**: Read & write
-   - **Metadata**: Read
-5. Subscribe the App to two webhook events: **Pull request** and
-   **Issue comment**.
+   - **Metadata**: Read (usually auto-selected when any of the others
+     are set)
+   If these end up under the wrong section, the install screen later
+   shows "No repositories: this app does not require access to your
+   repositories" and reviews can't happen.
+5. On the same page, under **Subscribe to events**, check
+   **Pull request** and **Issue comment**. (These options only appear
+   once the matching Repository permissions above are set.)
 6. Generate a private key, save the `.pem` file on the host, and point
    `github.private_key_path` in the YAML config at it.
-7. Install the App on the repositories you want reviewed.
+7. In the App's left sidebar, click **Install App** → **Install** next
+   to your account or org → **Only select repositories** → pick the
+   repos you want reviewed → confirm. If you already installed the App
+   before adding the permissions in step 4, click **Configure** instead
+   of *Install* and accept the new permission set.
+
+The App's *Advanced* tab has a *Recent Deliveries* view that's useful for
+debugging - it shows the exact payload GitHub sent, the response code our
+service returned, and a *Redeliver* button you can use to replay any event
+without making a new PR.
+
+### Local end-to-end smoke test
+
+To verify the full path against real GitHub before deployment:
+
+1. Make the local service reachable from github.com. Any of: an SSH reverse
+   tunnel through a publicly-addressed host, your existing reverse proxy, or
+   a temporary tunnel service. Point the App's webhook URL at the tunnel's
+   address with the path `/webhook`.
+2. Start the service: `uv run python -m vidi_pr`. Confirm uvicorn binds and
+   Alembic upgrades cleanly.
+3. Open a draft PR on a repo the App is installed on, then mark it ready for
+   review. The bot should fetch the PR, call the LLM, and post a review
+   within a few seconds. Failures surface as a single failure comment
+   (cooldown-limited) and the structured logs.
+
+This repo ships its own `.github/vidi-pr.yml` so a local-service run can review
+its own PRs.
 
 ## Configuration
 
@@ -98,12 +145,15 @@ github:
 
 llm:
   provider: openai_compat
-  base_url: http://ai01.lan:8080/v1
+  base_url: http://llm.example.lan:8080/v1
   model: qwen2.5-coder-32b
   # Optional overrides:
   # temperature: 0.2
   # timeout_seconds: 600
   # max_tokens: 4096
+  # extra_body:                              # provider-specific knobs
+  #   chat_template_kwargs:
+  #     enable_thinking: false               # Qwen3/3.5: skip the reasoning trace
 
 server:
   host: 127.0.0.1
@@ -145,6 +195,55 @@ Any non-secret YAML field can also be overridden at runtime via env vars of the
 form `VIDI_PR_<SECTION>__<FIELD>` (double underscore is the section
 delimiter), e.g. `VIDI_PR_LOGGING__LEVEL=DEBUG`. Env vars take precedence over
 the YAML file.
+
+### Choosing and sizing the LLM
+
+The reviewer talks to any OpenAI-compatible chat completions endpoint, so
+llama.cpp, vLLM, LM Studio, Ollama (with the OpenAI extension), or a hosted
+provider all work. The model itself determines review quality; the pipeline
+just frames the request.
+
+A few things to know before pointing at a model:
+
+- **Reasoning / "thinking" models need a much larger `max_tokens` cap.** Models
+  like Qwen3, Qwen3.5, DeepSeek-R1, or any model that emits a
+  `<think>...</think>` block use the completion-token budget for *both* the
+  hidden reasoning trace *and* the final answer. The default `max_tokens:
+  4096` is enough for a non-reasoning instruct model but routinely gets eaten
+  by reasoning alone. Start at `max_tokens: 16384` for a reasoning model and
+  raise from there if you still hit truncation. Alternatively, **disable
+  reasoning at the model level** (next bullet) so the answer fits in any
+  reasonable budget.
+- **Disabling reasoning.** Pass provider-specific knobs through `llm.extra_body`.
+  For Qwen3/3.5 served by llama.cpp or vLLM:
+
+  ```yaml
+  llm:
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+  ```
+
+  Anything in `extra_body` is merged into the chat-completion request body,
+  with typed fields (`temperature`, `max_tokens`) winning on conflict. Knob
+  names are model- and server-specific; see your inference server's docs.
+- **Diagnosing truncation.** Per-chunk logs include
+  `reasoning_chars`, `answer_chars`, and `finish_reason` so you can see
+  exactly where the completion budget went. When parsing fails, the posted
+  review comment also surfaces these numbers and a hint about which knob to
+  turn. `finish_reason: length` plus `answer_chars: 0` means reasoning ate
+  the whole budget; `finish_reason: stop` plus a non-empty answer that
+  still failed to parse usually means the model deviated from the
+  four-section format.
+- **Smaller models hallucinate more.** A 4B coder model can drive the pipeline
+  end-to-end but will invent functions, files, or settings that don't exist
+  in the diff. The system prompt is hardened against this, but the floor is
+  set by the model. 14B+ is the comfortable range for code review; 32B+ is
+  where findings start to be reliably substantive.
+- **No tool-use models.** Configure a plain chat-completions endpoint. The
+  pipeline does not support, expect, or sanitize tool-call output; a model
+  that decides to emit a tool call instead of prose will land in the parse
+  fallback.
 
 ### Per-repo config
 

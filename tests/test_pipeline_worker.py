@@ -6,6 +6,7 @@ from typing import cast
 
 from mocks.github import MockGitHubClient
 from mocks.llm import MockLLMClient
+from pydantic import SecretStr
 
 from vidi_pr.config.defaults import Strictness
 from vidi_pr.config.operator import (
@@ -84,7 +85,7 @@ def _operator_config(db_path: Path, *, job_timeout: int = 900) -> OperatorConfig
             strictness=Strictness.NORMAL,
             include_conversation=True,
         ),
-        webhook_secret="x",
+        webhook_secret=SecretStr("x"),
     )
 
 

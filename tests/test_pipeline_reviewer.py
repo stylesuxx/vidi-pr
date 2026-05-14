@@ -286,6 +286,35 @@ async def test_parse_failed_output_still_posts_raw_in_blockquote() -> None:
     assert "> free-form blob with no headings" in body
 
 
+async def test_parse_failed_body_surfaces_reasoning_and_finish_reason() -> None:
+    github = MockGitHubClient(
+        prs={_PR_NUMBER: _pr()},
+        pr_files={_PR_NUMBER: [_file("a.py")]},
+        comments={_PR_NUMBER: []},
+        repos={_REPO: _repo_info()},
+    )
+    llm = MockLLMClient(
+        [
+            ChatResponse(
+                content="",
+                model="m",
+                usage=TokenUsage(),
+                reasoning_content="x" * 12345,
+                finish_reason="length",
+            ),
+        ]
+    )
+
+    result = await _make_reviewer(github=github, llm=llm).run(_job())
+
+    assert result.status_detail == JobStatusDetail.PARSE_FAILED
+    body = github.reviews_posted[0].body
+    assert "reasoning: 12345 chars" in body
+    assert "finish_reason: length" in body
+    assert "llm.max_tokens" in body
+    assert "llm.extra_body" in body
+
+
 async def test_llm_permanent_failure_results_in_failed_job_with_failure_message() -> None:
     class FailingClient:
         async def chat(self, *args: object, **kwargs: object) -> ChatResponse:
