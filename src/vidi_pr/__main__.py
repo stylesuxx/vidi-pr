@@ -42,6 +42,7 @@ async def _serve(operator_config: OperatorConfig) -> None:
             else None
         ),
         timeout=float(operator_config.llm.timeout_seconds),
+        extra_body=operator_config.llm.extra_body,
     )
 
     try:

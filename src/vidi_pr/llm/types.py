@@ -48,3 +48,5 @@ class ChatResponse(BaseModel):
     content: str
     model: str
     usage: TokenUsage = Field(default_factory=TokenUsage)
+    reasoning_content: str = ""
+    finish_reason: str | None = None

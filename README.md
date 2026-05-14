@@ -151,6 +151,9 @@ llm:
   # temperature: 0.2
   # timeout_seconds: 600
   # max_tokens: 4096
+  # extra_body:                              # provider-specific knobs
+  #   chat_template_kwargs:
+  #     enable_thinking: false               # Qwen3/3.5: skip the reasoning trace
 
 server:
   host: 127.0.0.1
@@ -192,6 +195,55 @@ Any non-secret YAML field can also be overridden at runtime via env vars of the
 form `VIDI_PR_<SECTION>__<FIELD>` (double underscore is the section
 delimiter), e.g. `VIDI_PR_LOGGING__LEVEL=DEBUG`. Env vars take precedence over
 the YAML file.
+
+### Choosing and sizing the LLM
+
+The reviewer talks to any OpenAI-compatible chat completions endpoint, so
+llama.cpp, vLLM, LM Studio, Ollama (with the OpenAI extension), or a hosted
+provider all work. The model itself determines review quality; the pipeline
+just frames the request.
+
+A few things to know before pointing at a model:
+
+- **Reasoning / "thinking" models need a much larger `max_tokens` cap.** Models
+  like Qwen3, Qwen3.5, DeepSeek-R1, or any model that emits a
+  `<think>...</think>` block use the completion-token budget for *both* the
+  hidden reasoning trace *and* the final answer. The default `max_tokens:
+  4096` is enough for a non-reasoning instruct model but routinely gets eaten
+  by reasoning alone. Start at `max_tokens: 16384` for a reasoning model and
+  raise from there if you still hit truncation. Alternatively, **disable
+  reasoning at the model level** (next bullet) so the answer fits in any
+  reasonable budget.
+- **Disabling reasoning.** Pass provider-specific knobs through `llm.extra_body`.
+  For Qwen3/3.5 served by llama.cpp or vLLM:
+
+  ```yaml
+  llm:
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
+  ```
+
+  Anything in `extra_body` is merged into the chat-completion request body,
+  with typed fields (`temperature`, `max_tokens`) winning on conflict. Knob
+  names are model- and server-specific; see your inference server's docs.
+- **Diagnosing truncation.** Per-chunk logs include
+  `reasoning_chars`, `answer_chars`, and `finish_reason` so you can see
+  exactly where the completion budget went. When parsing fails, the posted
+  review comment also surfaces these numbers and a hint about which knob to
+  turn. `finish_reason: length` plus `answer_chars: 0` means reasoning ate
+  the whole budget; `finish_reason: stop` plus a non-empty answer that
+  still failed to parse usually means the model deviated from the
+  four-section format.
+- **Smaller models hallucinate more.** A 4B coder model can drive the pipeline
+  end-to-end but will invent functions, files, or settings that don't exist
+  in the diff. The system prompt is hardened against this, but the floor is
+  set by the model. 14B+ is the comfortable range for code review; 32B+ is
+  where findings start to be reliably substantive.
+- **No tool-use models.** Configure a plain chat-completions endpoint. The
+  pipeline does not support, expect, or sanitize tool-call output; a model
+  that decides to emit a tool call instead of prose will land in the parse
+  fallback.
 
 ### Per-repo config
 

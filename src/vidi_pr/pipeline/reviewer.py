@@ -52,6 +52,24 @@ class ReviewResult:
     failure_message: str | None = None
 
 
+@dataclass(frozen=True)
+class _ChunksResult:
+    outputs: list[ParsedReview]
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_chars: int
+    last_finish_reason: str | None
+
+
+@dataclass(frozen=True)
+class _SynthesisResult:
+    review: ParsedReview
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_chars: int
+    last_finish_reason: str | None
+
+
 class Reviewer:
     def __init__(
         self,
@@ -125,21 +143,22 @@ class Reviewer:
             )
 
         try:
-            per_chunk_outputs, prompt_tokens, completion_tokens = await self._run_chunks(
+            chunks_result = await self._run_chunks(
                 job, content.pr, content, repo_config, packing.chunks
             )
         except (LLMError, GitHubError) as exc:
             return _failure_from(exc, started, kind=JobStatusDetail.LLM_FAILURE)
 
         try:
-            final_review, syn_prompt, syn_completion = await self._maybe_synthesize(
-                repo_config, per_chunk_outputs
-            )
+            synthesis = await self._maybe_synthesize(repo_config, chunks_result.outputs)
         except (LLMError, GitHubError) as exc:
             return _failure_from(exc, started, kind=JobStatusDetail.LLM_FAILURE)
 
-        prompt_tokens += syn_prompt
-        completion_tokens += syn_completion
+        prompt_tokens = chunks_result.prompt_tokens + synthesis.prompt_tokens
+        completion_tokens = chunks_result.completion_tokens + synthesis.completion_tokens
+        reasoning_chars = chunks_result.reasoning_chars + synthesis.reasoning_chars
+        finish_reason = synthesis.last_finish_reason or chunks_result.last_finish_reason
+        final_review = synthesis.review
 
         duration = time.perf_counter() - started
         body = _render_review_body(
@@ -149,6 +168,8 @@ class Reviewer:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             skipped=packing.skipped,
+            reasoning_chars=reasoning_chars,
+            finish_reason=finish_reason,
         )
 
         status_detail: JobStatusDetail | None = (
@@ -219,12 +240,14 @@ class Reviewer:
         content: PRContent,
         repo_config: RepoConfig,
         chunks: list[Chunk],
-    ) -> tuple[list[ParsedReview], int, int]:
+    ) -> _ChunksResult:
         outputs: list[ParsedReview] = []
         prompt_tokens = 0
         completion_tokens = 0
+        reasoning_chars = 0
+        last_finish_reason: str | None = None
 
-        for chunk in chunks:
+        for index, chunk in enumerate(chunks):
             messages = compose_review_prompt(
                 repo_config=repo_config,
                 pr=pr,
@@ -239,17 +262,45 @@ class Reviewer:
             )
             prompt_tokens += response.usage.prompt_tokens
             completion_tokens += response.usage.completion_tokens
+            reasoning_chars += len(response.reasoning_content)
+            last_finish_reason = response.finish_reason
+
+            _logger.info(
+                "chunk reviewed",
+                repo=job.repo,
+                pr_number=job.pr_number,
+                chunk_index=index,
+                chunk_total=len(chunks),
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                reasoning_chars=len(response.reasoning_content),
+                answer_chars=len(response.content),
+                finish_reason=response.finish_reason,
+            )
+
             outputs.append(parse_review_output(response.content))
 
-        return outputs, prompt_tokens, completion_tokens
+        return _ChunksResult(
+            outputs=outputs,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            reasoning_chars=reasoning_chars,
+            last_finish_reason=last_finish_reason,
+        )
 
     async def _maybe_synthesize(
         self,
         repo_config: RepoConfig,
         chunk_outputs: list[ParsedReview],
-    ) -> tuple[ParsedReview, int, int]:
+    ) -> _SynthesisResult:
         if len(chunk_outputs) == 1:
-            return chunk_outputs[0], 0, 0
+            return _SynthesisResult(
+                review=chunk_outputs[0],
+                prompt_tokens=0,
+                completion_tokens=0,
+                reasoning_chars=0,
+                last_finish_reason=None,
+            )
 
         messages = compose_synthesis_prompt(
             repo_config=repo_config,
@@ -261,10 +312,12 @@ class Reviewer:
             max_tokens=self._llm_config.max_tokens,
         )
 
-        return (
-            parse_review_output(response.content),
-            response.usage.prompt_tokens,
-            response.usage.completion_tokens,
+        return _SynthesisResult(
+            review=parse_review_output(response.content),
+            prompt_tokens=response.usage.prompt_tokens,
+            completion_tokens=response.usage.completion_tokens,
+            reasoning_chars=len(response.reasoning_content),
+            last_finish_reason=response.finish_reason,
         )
 
 
@@ -284,9 +337,17 @@ def _render_review_body(
     prompt_tokens: int,
     completion_tokens: int,
     skipped: list[str],
+    reasoning_chars: int = 0,
+    finish_reason: str | None = None,
 ) -> str:
     if parsed.parse_failed:
-        review_text = "> _Could not parse model output into the standard four sections._\n\n"
+        review_text = "> _Could not parse model output into the standard four sections._\n"
+        review_text += _parse_failure_diagnostic(
+            answer_chars=len(parsed.raw),
+            reasoning_chars=reasoning_chars,
+            finish_reason=finish_reason,
+        )
+        review_text += "\n\n"
         review_text += "\n".join(f"> {line}" for line in parsed.raw.splitlines())
     else:
         sections: list[str] = []
@@ -312,6 +373,20 @@ def _render_review_body(
     )
     full = f"{review_text}\n\n{footer}"
     return _truncate(full)
+
+
+def _parse_failure_diagnostic(
+    *, answer_chars: int, reasoning_chars: int, finish_reason: str | None
+) -> str:
+    parts = [f"answer: {answer_chars} chars", f"reasoning: {reasoning_chars} chars"]
+    if finish_reason is not None:
+        parts.append(f"finish_reason: {finish_reason}")
+    if finish_reason == "length":
+        parts.append(
+            "the model hit `llm.max_tokens` mid-output; raise it, or disable "
+            "reasoning via `llm.extra_body`"
+        )
+    return f"> _({'; '.join(parts)})_"
 
 
 def _truncate(body: str) -> str:
