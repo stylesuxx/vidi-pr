@@ -115,14 +115,10 @@ class OpenAICompatClient:
             raise LLMTransientError(f"LLM /models request failed: {exc}") from exc
 
         if 500 <= response.status_code < 600:
-            raise LLMTransientError(
-                f"LLM /models returned {response.status_code}: {response.text}"
-            )
+            raise LLMTransientError(f"LLM /models returned {response.status_code}: {response.text}")
 
         if 400 <= response.status_code < 500:
-            raise LLMPermanentError(
-                f"LLM /models returned {response.status_code}: {response.text}"
-            )
+            raise LLMPermanentError(f"LLM /models returned {response.status_code}: {response.text}")
 
         try:
             payload = response.json()

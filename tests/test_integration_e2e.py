@@ -14,6 +14,7 @@ from githubkit.webhooks import sign as sign_webhook
 from httpx import ASGITransport
 from mocks.github import MockGitHubClient
 from mocks.llm import MockLLMClient
+from pydantic import SecretStr
 
 from vidi_pr.config.defaults import Strictness
 from vidi_pr.config.operator import (
@@ -346,7 +347,7 @@ def _operator_config(db_path: Path) -> OperatorConfig:
             strictness=Strictness.NORMAL,
             include_conversation=True,
         ),
-        webhook_secret=_SECRET,
+        webhook_secret=SecretStr(_SECRET),
     )
 
 
