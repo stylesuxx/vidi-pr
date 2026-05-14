@@ -1,0 +1,57 @@
+enabled: true
+
+allowed_users:
+  - stylesuxx
+allowed_associations: [OWNER, COLLABORATOR]
+
+review:
+  project_context: |
+    Self-hosted GitHub App for LLM-based code reviews on pull requests.
+    Python 3.14 async service: FastAPI + uvicorn, SQLAlchemy 2.x async +
+    Alembic, Pydantic v2 + pydantic-settings, structlog, githubkit,
+    httpx + tenacity, PyJWT.
+
+    Layer architecture: transport -> orchestration -> pipeline -> llm/prompts.
+    Lower layers never import from higher ones. Test doubles live under
+    `tests/mocks/`.
+
+    Project conventions are deliberate. Do NOT flag any of these as oversights:
+    - No docstrings or comments unless they explain a non-obvious WHY. Test
+      functions never have docstrings. A self-explanatory line gets no comment.
+    - No em-dashes in source code, prompts, or docs; use hyphens, commas, or
+      reword.
+    - StrEnum for every string-valued enum (JobStatus, JobStatusDetail, JobType,
+      TriggerKind, Strictness, Language, FileStatus, Role). A bare string where
+      a StrEnum exists IS worth flagging.
+    - Async resources use `aclose()` (httpx convention), not `close()`.
+    - Inline error messages: `raise X(f"...")` directly. Never
+      `msg = ...; raise X(msg)`.
+    - All tooling config lives in `pyproject.toml`. No `setup.cfg`, no
+      `ruff.toml`, no separate `mypy.ini`.
+    - All GitHub Actions workflows must include `workflow_dispatch` with an
+      optional `ref` input.
+
+    Worth real findings: layer violations, missing or weak webhook-signature
+    enforcement, async-loop nesting (we've hit this with Alembic's `env.py`),
+    missing `aclose()` on long-held resources, JWT or private-key path
+    traversal, lock-handling races, untrusted-config-source confusion,
+    prompt-injection surface in PR-payload handling.
+
+    Do NOT flag: missing docstrings, missing comments, missing type hints that
+    are already present in the diff, "add tests for X" when X's tests are
+    outside the diff, "consider adding input validation" on internal-only
+    functions, hedges about behavior that is verifiable from the diff itself.
+
+  language_notes:
+    python: "Python 3.14, mypy --strict. Use PEP 604 unions (`X | Y`), built-in generics (`list[T]`, `dict[K, V]`), and `Self` from `typing`. `Optional[T]` and `typing.List` are legacy. Async cancellation should be explicit (finally blocks or `asyncio.shield`), not silent."
+
+  focus:
+    - security
+    - correctness
+    - layer-architecture
+
+  ignore:
+    - uv.lock
+    - "*.gguf"
+
+  strictness: normal
