@@ -154,6 +154,52 @@ async def test_response_without_reasoning_fields_has_safe_defaults(httpx_mock: H
     assert response.finish_reason is None
 
 
+async def test_list_models_returns_ids(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(
+        url=f"{_BASE_URL}/models",
+        json={
+            "object": "list",
+            "data": [
+                {"id": "qwen2.5-coder-7b-instruct-q4_k_m.gguf", "object": "model"},
+                {"id": "qwen3.5-4b-q4_k_m.gguf", "object": "model"},
+            ],
+        },
+    )
+
+    async with _client() as client:
+        models = await client.list_models()
+
+    assert models == [
+        "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+        "qwen3.5-4b-q4_k_m.gguf",
+    ]
+
+
+async def test_list_models_returns_empty_list_when_data_missing(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=f"{_BASE_URL}/models", json={"object": "list"})
+
+    async with _client() as client:
+        models = await client.list_models()
+
+    assert models == []
+
+
+async def test_list_models_raises_transient_on_5xx(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=f"{_BASE_URL}/models", status_code=503, text="oops")
+
+    async with _client() as client:
+        with pytest.raises(LLMTransientError):
+            await client.list_models()
+
+
+async def test_list_models_raises_permanent_on_4xx(httpx_mock: HTTPXMock) -> None:
+    httpx_mock.add_response(url=f"{_BASE_URL}/models", status_code=401, text="nope")
+
+    async with _client() as client:
+        with pytest.raises(LLMPermanentError):
+            await client.list_models()
+
+
 async def test_response_format_passes_through(httpx_mock: HTTPXMock) -> None:
     httpx_mock.add_response(url=_ENDPOINT, json=_success_body())
 

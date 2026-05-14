@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 from importlib import resources
 
+import structlog
 import uvicorn
 from alembic import command
 from alembic.config import Config as AlembicConfig
 
 from vidi_pr.config.operator import OperatorConfig
 from vidi_pr.llm.client import OpenAICompatClient
+from vidi_pr.llm.errors import LLMError
 from vidi_pr.orchestration.handlers import DEFAULT_BOT_LOGIN, OrchestrationHandler
 from vidi_pr.pipeline.reviewer import Reviewer
 from vidi_pr.pipeline.worker import Worker
@@ -17,6 +19,8 @@ from vidi_pr.transport.github_client import GitHubClient
 from vidi_pr.transport.logging_setup import setup_logging
 from vidi_pr.transport.server import create_app
 
+_logger = structlog.get_logger(__name__)
+
 
 def _run_migrations(db_url: str) -> None:
     script_location = resources.files("vidi_pr.storage") / "alembic"
@@ -24,6 +28,27 @@ def _run_migrations(db_url: str) -> None:
     config.set_main_option("script_location", str(script_location))
     config.set_main_option("sqlalchemy.url", db_url)
     command.upgrade(config, "head")
+
+
+async def _probe_llm(client: OpenAICompatClient, *, expected_model: str) -> None:
+    try:
+        available = await client.list_models()
+    except LLMError as exc:
+        _logger.warning(
+            "LLM endpoint not reachable at startup; reviews will fail until it is up",
+            error=str(exc),
+        )
+        return
+
+    if expected_model in available:
+        _logger.info("LLM endpoint ready", model=expected_model, available=len(available))
+        return
+
+    _logger.warning(
+        "configured model not present on LLM endpoint; reviews will fail until it is loaded",
+        expected_model=expected_model,
+        available_models=available,
+    )
 
 
 async def _serve(operator_config: OperatorConfig) -> None:
@@ -44,6 +69,8 @@ async def _serve(operator_config: OperatorConfig) -> None:
         timeout=float(operator_config.llm.timeout_seconds),
         extra_body=operator_config.llm.extra_body,
     )
+
+    await _probe_llm(llm_client, expected_model=operator_config.llm.model)
 
     try:
         handler = OrchestrationHandler(

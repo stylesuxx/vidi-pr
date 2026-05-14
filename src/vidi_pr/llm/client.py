@@ -28,6 +28,8 @@ class LLMClient(Protocol):
         response_format: dict[str, Any] | None = None,
     ) -> ChatResponse: ...
 
+    async def list_models(self) -> list[str]: ...
+
 
 class OpenAICompatClient:
     """
@@ -102,6 +104,33 @@ class OpenAICompatClient:
                 return await self._execute(request)
 
         raise LLMError("tenacity retry loop exited without result")
+
+    async def list_models(self) -> list[str]:
+        url = f"{self._base_url}/models"
+        try:
+            response = await self._client.get(url, timeout=10.0)
+        except httpx.TimeoutException as exc:
+            raise LLMTransientError(f"LLM /models request timed out: {exc}") from exc
+        except httpx.RequestError as exc:
+            raise LLMTransientError(f"LLM /models request failed: {exc}") from exc
+
+        if 500 <= response.status_code < 600:
+            raise LLMTransientError(
+                f"LLM /models returned {response.status_code}: {response.text}"
+            )
+
+        if 400 <= response.status_code < 500:
+            raise LLMPermanentError(
+                f"LLM /models returned {response.status_code}: {response.text}"
+            )
+
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise LLMError(f"LLM /models response was not valid JSON: {exc}") from exc
+
+        data = payload.get("data") or []
+        return [str(entry["id"]) for entry in data if isinstance(entry, dict) and "id" in entry]
 
     async def _execute(self, request: ChatRequest) -> ChatResponse:
         url = f"{self._base_url}/chat/completions"
