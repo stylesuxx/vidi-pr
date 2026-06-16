@@ -38,6 +38,13 @@ def test_system_prompt_has_anti_injection_clause() -> None:
     assert "untrusted" in text.lower() or "injection" in text.lower()
 
 
+def test_system_prompt_explains_diff_only_context() -> None:
+    text = load_template("system.md").lower()
+
+    assert "unified diff" in text
+    assert "do not invent" in text
+
+
 def test_strictness_block_files_cover_all_levels() -> None:
     for level in Strictness:
         block = load_strictness_block(level)

@@ -526,6 +526,26 @@ async def test_5xx_raises_transient_error(httpx_mock: HTTPXMock, app_private_key
             await client.get_pr(_INSTALLATION_ID, _REPO, _PR_NUMBER)
 
 
+async def test_rate_limited_403_raises_transient_error(
+    httpx_mock: HTTPXMock, app_private_key: str
+) -> None:
+    _mock_token(httpx_mock)
+    # A 403 with x-ratelimit-remaining: 0 is githubkit's PrimaryRateLimitExceeded,
+    # which must be treated as transient (retryable), not a permanent 4xx.
+    httpx_mock.add_response(
+        method="GET",
+        url=f"https://api.github.com/repos/{_REPO}/pulls/{_PR_NUMBER}",
+        status_code=403,
+        headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999"},
+        text="rate limit exceeded",
+        is_reusable=True,
+    )
+
+    async with GitHubClient(app_id=1, private_key=app_private_key) as client:
+        with pytest.raises(GitHubTransientError):
+            await client.get_pr(_INSTALLATION_ID, _REPO, _PR_NUMBER)
+
+
 async def test_404_raises_github_not_found(httpx_mock: HTTPXMock, app_private_key: str) -> None:
     _mock_token(httpx_mock)
     httpx_mock.add_response(

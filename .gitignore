@@ -34,3 +34,7 @@ venv/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Local secrets (e.g. GitHub token for `dry-run`)
+.vidi-pr-token
+*.token

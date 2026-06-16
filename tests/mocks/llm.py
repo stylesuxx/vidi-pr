@@ -24,10 +24,19 @@ class MockLLMClient:
     responses, so tests fail loudly instead of looping or returning stale data.
     """
 
-    def __init__(self, responses: Sequence[ChatResponse]) -> None:
+    def __init__(
+        self,
+        responses: Sequence[ChatResponse],
+        *,
+        available_models: Sequence[str] = (),
+    ) -> None:
         self._responses: list[ChatResponse] = list(responses)
         self._cursor = 0
+        self._available_models = list(available_models)
         self.calls: list[MockCall] = []
+
+    async def list_models(self) -> list[str]:
+        return list(self._available_models)
 
     async def chat(
         self,

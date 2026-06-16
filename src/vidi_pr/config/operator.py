@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import (
@@ -50,6 +50,7 @@ class LLMConfig(BaseModel):
     temperature: float = 0.2
     timeout_seconds: int = Field(default=600, ge=1)
     max_tokens: int = Field(default=4096, ge=1)
+    extra_body: dict[str, Any] = Field(default_factory=dict)
 
 
 class ServerConfig(BaseModel):
