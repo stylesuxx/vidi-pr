@@ -22,17 +22,17 @@ A 1-3 sentence overview of what the change does and its overall quality.
 
 ## Findings
 
-Substantive issues only: bugs, security risks, correctness defects, real design problems. Bulleted, ordered most-severe first. Begin each bullet with a severity tag:
+Substantive issues only: bugs, security risks, correctness defects, real design problems. Bulleted, ordered most-severe first. Begin each bullet with a bold severity tag:
 
-- `[high]` breaks correctness or security, or will clearly bite in production.
-- `[medium]` a real defect with limited blast radius.
-- `[low]` minor but genuine.
+- `**[high]**` breaks correctness or security, or will clearly bite in production.
+- `**[medium]**` a real defect with limited blast radius.
+- `**[low]**` minor but genuine.
 
-Each finding is exactly one bullet on a single line, with no nested sub-bullets. Start the bullet with the severity tag in backticks, then the rest as plain prose, in this shape:
+Each finding is exactly one bullet on a single line, with no nested sub-bullets. Start the bullet with the bold severity tag, then the rest as plain prose, in this exact shape:
 
-`[high]` problem statement (path or path:symbol); fix: short recommended fix.
+- **[high]** problem statement (path or path:symbol); fix: short recommended fix.
 
-Only the severity tag is in backticks; do not wrap the problem or the fix in backticks or a code span. Do not add a separate "Fix:" sub-bullet or otherwise repeat the fix. List only actual problems here: if a change is fine or praiseworthy, it is not a finding, so leave it out (put praise in Positives). Keep any code snippet to a few words. If there are no substantive issues, write a single bullet: `None.`
+Write the tag as literal bold Markdown (`**[high]**`), not in backticks or a code span, and put nothing else in bold. Severity tags belong only on Findings bullets; never put a tag on a Suggestion or Positive. Do not add a separate "Fix:" sub-bullet or otherwise repeat the fix. List only actual problems here: if a change is fine or praiseworthy, it is not a finding, so leave it out (put praise in Positives). Keep any code snippet to a few words. If there are no substantive issues, write a single bullet: `None.`
 
 ## Suggestions
 
