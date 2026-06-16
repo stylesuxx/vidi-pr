@@ -251,6 +251,40 @@ A few things to know before pointing at a model:
   that decides to emit a tool call instead of prose will land in the parse
   fallback.
 
+### Evaluating and tuning the review prompts
+
+Review quality depends as much on the prompts as on the model, and the right
+prompt wording is model-specific: a small local model needs tighter, more
+defensive instructions than a large hosted one. The prompts live as plain
+Markdown in `src/vidi_pr/prompts/` (`system.md`, the synthesis prompt, the
+per-language and strictness fragments), so you can edit them for your model and
+codebase.
+
+The reliable way to tune them is to **dry-run against real, already-merged PRs**
+and read what the bot *would* have posted, without touching GitHub:
+
+```sh
+GITHUB_TOKEN=ghp_xxx uv run python -m vidi_pr dry-run \
+  https://github.com/owner/repo/pull/123 --config /etc/vidi-pr/vidi-pr.yml --dump-prompts
+```
+
+The rendered review prints to stdout; `--dump-prompts` adds the exact messages
+sent to the model on stderr. A practical loop:
+
+1. Pick 10-20 representative past PRs (a mix of trivial, small, and large).
+2. Dry-run them and read the output. Note concrete failure modes: invented
+   files or APIs, duplicated points, generic filler, missed real issues,
+   format drift.
+3. Edit the prompt in `src/vidi_pr/prompts/` to target one failure mode at a
+   time (an explicit rule, a tighter format spec, a cap on a section).
+4. Re-run the same PRs and compare. Keep changes that help across the set, not
+   just on one PR. Iterate on a small single-chunk PR for fast turnaround
+   (seconds), then re-validate on the large ones.
+
+This repo's own prompts were tuned exactly this way against a small local model.
+See [Running vidi-pr against a local LLM](docs/local-llm-tuning.md) for the full
+write-up, including the model-behavior findings that shaped the current prompts.
+
 ### Per-repo config
 
 Each repository being reviewed can supply `.github/vidi-pr.yml`. The

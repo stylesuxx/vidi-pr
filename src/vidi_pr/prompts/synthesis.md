@@ -12,6 +12,8 @@ Rules:
 - Do not introduce any finding or suggestion that no chunk raised, and do not invent or alter file paths.
 - Write one unified Summary for the whole change, not a concatenation of the per-chunk summaries.
 
+Merging chunks tends to produce too many items. After combining, enforce these hard limits and delete the lowest-value items until they hold: Suggestions has at most 5 bullets; Positives has at most 2 bullets; no point appears in both Findings and Suggestions.
+
 <chunk_outputs>
 
 {{chunk_outputs}}
