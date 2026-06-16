@@ -384,3 +384,28 @@ async def test_github_permanent_on_post_marks_pr_closed() -> None:
     assert result.status_detail == JobStatusDetail.PR_CLOSED
     assert github.reviews_posted == []
     assert result.failure_message is None
+
+
+async def test_none_placeholder_sections_are_omitted_from_body() -> None:
+    github = MockGitHubClient(
+        prs={_PR_NUMBER: _pr()},
+        pr_files={_PR_NUMBER: [_file("a.py")]},
+        comments={_PR_NUMBER: []},
+        repos={_REPO: _repo_info()},
+    )
+    content = (
+        "## Summary\n\nDoes a thing.\n\n"
+        "## Findings\n\n- **[low]** real issue (a.py); fix: do x.\n\n"
+        "## Suggestions\n\n- None.\n\n"
+        "## Positives\n\n- **None.**"
+    )
+    llm = MockLLMClient([_good_response(content)])
+
+    await _make_reviewer(github=github, llm=llm).run(_job())
+
+    body = github.reviews_posted[0].body
+    assert "## Summary" in body
+    assert "## Findings" in body
+    assert "## Suggestions" not in body
+    assert "## Positives" not in body
+    assert "None" not in body

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -394,6 +395,15 @@ def _filter_files(files: list[ChangedFile], repo_config: RepoConfig) -> list[Cha
     ]
 
 
+# A section whose body is only a "none" placeholder (any decoration: bullets,
+# bold, parens, trailing period) carries no information, so it is dropped.
+_BLANK_SECTION = re.compile(r"^[\s\-*`>().]*none[\s\-*`>().]*$", re.IGNORECASE)
+
+
+def _is_blank_section(content: str) -> bool:
+    return bool(_BLANK_SECTION.match(content.strip()))
+
+
 def _render_review_body(
     *,
     parsed: ParsedReview,
@@ -422,7 +432,7 @@ def _render_review_body(
             ("## Suggestions", parsed.suggestions),
             ("## Positives", parsed.positives),
         ):
-            if content:
+            if content and not _is_blank_section(content):
                 sections.append(f"{heading}\n\n{content}")
         review_text = "\n\n".join(sections)
 
