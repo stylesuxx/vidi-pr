@@ -3,14 +3,16 @@ from __future__ import annotations
 import base64
 import json
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
+from githubkit.exception import RateLimitExceeded
 from pytest_httpx import HTTPXMock
 
 from vidi_pr.config.repo import FetchStatus
 from vidi_pr.models.review import FileStatus
 from vidi_pr.transport.errors import GitHubNotFound, GitHubPermanentError, GitHubTransientError
-from vidi_pr.transport.github_client import GitHubClient
+from vidi_pr.transport.github_client import GitHubClient, _map_error
 
 _INSTALLATION_ID = 42
 _TOKEN_URL = f"https://api.github.com/app/installations/{_INSTALLATION_ID}/access_tokens"
@@ -526,24 +528,15 @@ async def test_5xx_raises_transient_error(httpx_mock: HTTPXMock, app_private_key
             await client.get_pr(_INSTALLATION_ID, _REPO, _PR_NUMBER)
 
 
-async def test_rate_limited_403_raises_transient_error(
-    httpx_mock: HTTPXMock, app_private_key: str
-) -> None:
-    _mock_token(httpx_mock)
-    # A 403 with x-ratelimit-remaining: 0 is githubkit's PrimaryRateLimitExceeded,
-    # which must be treated as transient (retryable), not a permanent 4xx.
-    httpx_mock.add_response(
-        method="GET",
-        url=f"https://api.github.com/repos/{_REPO}/pulls/{_PR_NUMBER}",
-        status_code=403,
-        headers={"x-ratelimit-remaining": "0", "x-ratelimit-reset": "9999999999"},
-        text="rate limit exceeded",
-        is_reusable=True,
-    )
+def test_rate_limit_exceeded_maps_to_transient_error() -> None:
+    # githubkit raises RateLimitExceeded (a RequestFailed subclass) on a 403/429
+    # rate limit. It must map to transient (retryable), not a permanent 4xx.
+    # Tested directly: driving it through the client would trip githubkit's
+    # built-in rate-limit retry, which sleeps until the reset time.
+    exc = RateLimitExceeded.__new__(RateLimitExceeded)
+    exc.response = Mock(status_code=403, text="API rate limit exceeded")
 
-    async with GitHubClient(app_id=1, private_key=app_private_key) as client:
-        with pytest.raises(GitHubTransientError):
-            await client.get_pr(_INSTALLATION_ID, _REPO, _PR_NUMBER)
+    assert isinstance(_map_error(exc), GitHubTransientError)
 
 
 async def test_404_raises_github_not_found(httpx_mock: HTTPXMock, app_private_key: str) -> None:
