@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import structlog
 from tenacity import (
@@ -15,6 +15,7 @@ from vidi_pr.config.operator import DefaultsConfig, LLMConfig, PipelineConfig
 from vidi_pr.config.repo import RepoConfig, RepoConfigLoader, is_ignored
 from vidi_pr.llm.client import LLMClient
 from vidi_pr.llm.errors import LLMError
+from vidi_pr.llm.types import Message
 from vidi_pr.models.review import (
     ChangedFile,
     Chunk,
@@ -53,12 +54,40 @@ class ReviewResult:
 
 
 @dataclass(frozen=True)
+class PromptDump:
+    label: str
+    messages: list[Message]
+
+
+@dataclass(frozen=True)
+class RenderedReview:
+    """
+    Everything `run` needs to post a review, produced without posting it.
+
+    On an early exit (draft PR, nothing reviewable, LLM/GitHub failure mid-run)
+    `early_result` carries the terminal `ReviewResult` and `body` is None.
+    Otherwise `body` holds the Markdown that would be posted and `prompts`
+    holds the exact messages sent to the model, for the dry-run inspector.
+    """
+
+    early_result: ReviewResult | None = None
+    body: str | None = None
+    status_detail: JobStatusDetail | None = None
+    duration_seconds: float = 0.0
+    chunk_count: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    prompts: list[PromptDump] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class _ChunksResult:
     outputs: list[ParsedReview]
     prompt_tokens: int
     completion_tokens: int
     reasoning_chars: int
     last_finish_reason: str | None
+    prompts: list[PromptDump]
 
 
 @dataclass(frozen=True)
@@ -68,6 +97,7 @@ class _SynthesisResult:
     completion_tokens: int
     reasoning_chars: int
     last_finish_reason: str | None
+    prompt: PromptDump | None
 
 
 class Reviewer:
@@ -89,15 +119,77 @@ class Reviewer:
         self._bot_login = bot_login
 
     async def run(self, job: Job) -> ReviewResult:
+        rendered = await self.prepare(job)
+        if rendered.early_result is not None:
+            return rendered.early_result
+
+        assert rendered.body is not None  # invariant: no early_result => body present
+
+        try:
+            review_id = await _post_with_retry(
+                client=self._github,
+                installation_id=job.installation_id,
+                repo=job.repo,
+                pr_number=job.pr_number,
+                body=rendered.body,
+            )
+        except GitHubPermanentError as exc:
+            _logger.warning(
+                "review post rejected as permanent failure (assuming PR closed)",
+                repo=job.repo,
+                pr_number=job.pr_number,
+                error=str(exc),
+            )
+            return ReviewResult(
+                status=JobStatus.DONE,
+                status_detail=JobStatusDetail.PR_CLOSED,
+                duration_seconds=rendered.duration_seconds,
+                chunk_count=rendered.chunk_count,
+                prompt_tokens=rendered.prompt_tokens,
+                completion_tokens=rendered.completion_tokens,
+                error=str(exc),
+            )
+        except GitHubError as exc:
+            return ReviewResult(
+                status=JobStatus.FAILED,
+                status_detail=JobStatusDetail.GITHUB_FAILURE,
+                duration_seconds=rendered.duration_seconds,
+                chunk_count=rendered.chunk_count,
+                prompt_tokens=rendered.prompt_tokens,
+                completion_tokens=rendered.completion_tokens,
+                error=str(exc),
+            )
+
+        return ReviewResult(
+            status=JobStatus.DONE,
+            status_detail=rendered.status_detail,
+            review_id=review_id,
+            duration_seconds=rendered.duration_seconds,
+            chunk_count=rendered.chunk_count,
+            prompt_tokens=rendered.prompt_tokens,
+            completion_tokens=rendered.completion_tokens,
+        )
+
+    async def prepare(self, job: Job, *, skip_draft_check: bool = False) -> RenderedReview:
+        """
+        Run the full pipeline up to the rendered review body, without posting.
+
+        `run` posts the body; the dry-run inspector prints it. Early exits
+        (draft, nothing reviewable, LLM/GitHub failure) surface as
+        `RenderedReview.early_result`. The dry-run inspector passes
+        `skip_draft_check=True` so it can review draft PRs too.
+        """
         started = time.perf_counter()
 
         pr_now = await self._github.get_pr(job.installation_id, job.repo, job.pr_number)
-        if pr_now.draft:
+        if pr_now.draft and not skip_draft_check:
             _logger.info("review aborted: PR is draft", repo=job.repo, pr_number=job.pr_number)
-            return ReviewResult(
-                status=JobStatus.DONE,
-                status_detail=JobStatusDetail.DRAFTED_AFTER_EVENT,
-                duration_seconds=time.perf_counter() - started,
+            return RenderedReview(
+                early_result=ReviewResult(
+                    status=JobStatus.DONE,
+                    status_detail=JobStatusDetail.DRAFTED_AFTER_EVENT,
+                    duration_seconds=time.perf_counter() - started,
+                )
             )
 
         repo_config = await self._load_repo_config(job, pr_now)
@@ -123,10 +215,12 @@ class Reviewer:
                 repo=job.repo,
                 pr_number=job.pr_number,
             )
-            return ReviewResult(
-                status=JobStatus.DONE,
-                status_detail=JobStatusDetail.NO_REVIEWABLE_FILES,
-                duration_seconds=time.perf_counter() - started,
+            return RenderedReview(
+                early_result=ReviewResult(
+                    status=JobStatus.DONE,
+                    status_detail=JobStatusDetail.NO_REVIEWABLE_FILES,
+                    duration_seconds=time.perf_counter() - started,
+                )
             )
 
         packing = pack_chunks(
@@ -136,23 +230,23 @@ class Reviewer:
             max_chunk_chars=self._pipeline.max_chunk_chars,
         )
         if not packing.chunks:
-            return ReviewResult(
-                status=JobStatus.DONE,
-                status_detail=JobStatusDetail.NO_REVIEWABLE_FILES,
-                duration_seconds=time.perf_counter() - started,
+            return RenderedReview(
+                early_result=ReviewResult(
+                    status=JobStatus.DONE,
+                    status_detail=JobStatusDetail.NO_REVIEWABLE_FILES,
+                    duration_seconds=time.perf_counter() - started,
+                )
             )
 
         try:
             chunks_result = await self._run_chunks(
                 job, content.pr, content, repo_config, packing.chunks
             )
-        except (LLMError, GitHubError) as exc:
-            return _failure_from(exc, started, kind=JobStatusDetail.LLM_FAILURE)
-
-        try:
             synthesis = await self._maybe_synthesize(repo_config, chunks_result.outputs)
         except (LLMError, GitHubError) as exc:
-            return _failure_from(exc, started, kind=JobStatusDetail.LLM_FAILURE)
+            return RenderedReview(
+                early_result=_failure_from(exc, started, kind=JobStatusDetail.LLM_FAILURE)
+            )
 
         prompt_tokens = chunks_result.prompt_tokens + synthesis.prompt_tokens
         completion_tokens = chunks_result.completion_tokens + synthesis.completion_tokens
@@ -172,53 +266,18 @@ class Reviewer:
             finish_reason=finish_reason,
         )
 
-        status_detail: JobStatusDetail | None = (
-            JobStatusDetail.PARSE_FAILED if final_review.parse_failed else None
-        )
+        prompts = list(chunks_result.prompts)
+        if synthesis.prompt is not None:
+            prompts.append(synthesis.prompt)
 
-        try:
-            review_id = await _post_with_retry(
-                client=self._github,
-                installation_id=job.installation_id,
-                repo=job.repo,
-                pr_number=job.pr_number,
-                body=body,
-            )
-        except GitHubPermanentError as exc:
-            _logger.warning(
-                "review post rejected as permanent failure (assuming PR closed)",
-                repo=job.repo,
-                pr_number=job.pr_number,
-                error=str(exc),
-            )
-            return ReviewResult(
-                status=JobStatus.DONE,
-                status_detail=JobStatusDetail.PR_CLOSED,
-                duration_seconds=duration,
-                chunk_count=len(packing.chunks),
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                error=str(exc),
-            )
-        except GitHubError as exc:
-            return ReviewResult(
-                status=JobStatus.FAILED,
-                status_detail=JobStatusDetail.GITHUB_FAILURE,
-                duration_seconds=duration,
-                chunk_count=len(packing.chunks),
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                error=str(exc),
-            )
-
-        return ReviewResult(
-            status=JobStatus.DONE,
-            status_detail=status_detail,
-            review_id=review_id,
+        return RenderedReview(
+            body=body,
+            status_detail=(JobStatusDetail.PARSE_FAILED if final_review.parse_failed else None),
             duration_seconds=duration,
             chunk_count=len(packing.chunks),
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            prompts=prompts,
         )
 
     async def _load_repo_config(self, job: Job, pr: PRInfo) -> RepoConfig:
@@ -242,6 +301,7 @@ class Reviewer:
         chunks: list[Chunk],
     ) -> _ChunksResult:
         outputs: list[ParsedReview] = []
+        prompts: list[PromptDump] = []
         prompt_tokens = 0
         completion_tokens = 0
         reasoning_chars = 0
@@ -255,6 +315,8 @@ class Reviewer:
                 chunk=chunk,
                 extra_context=job.extra_context,
             )
+            label = f"chunk {index + 1}/{len(chunks)}" if len(chunks) > 1 else "review"
+            prompts.append(PromptDump(label=label, messages=list(messages)))
             response = await self._llm.chat(
                 messages,
                 temperature=self._llm_config.temperature,
@@ -286,6 +348,7 @@ class Reviewer:
             completion_tokens=completion_tokens,
             reasoning_chars=reasoning_chars,
             last_finish_reason=last_finish_reason,
+            prompts=prompts,
         )
 
     async def _maybe_synthesize(
@@ -300,6 +363,7 @@ class Reviewer:
                 completion_tokens=0,
                 reasoning_chars=0,
                 last_finish_reason=None,
+                prompt=None,
             )
 
         messages = compose_synthesis_prompt(
@@ -318,6 +382,7 @@ class Reviewer:
             completion_tokens=response.usage.completion_tokens,
             reasoning_chars=len(response.reasoning_content),
             last_finish_reason=response.finish_reason,
+            prompt=PromptDump(label="synthesis", messages=list(messages)),
         )
 
 

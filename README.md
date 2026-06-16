@@ -203,6 +203,12 @@ llama.cpp, vLLM, LM Studio, Ollama (with the OpenAI extension), or a hosted
 provider all work. The model itself determines review quality; the pipeline
 just frames the request.
 
+If you are running a small, self-hosted model, read
+[Running vidi-pr against a local LLM](docs/local-llm-tuning.md). It covers the
+`dry-run` inspector for evaluating prompts without posting, the context-window
+limit and how to size chunks for it, the anti-repetition penalty that makes or
+breaks small-model output, and recommended starting settings.
+
 A few things to know before pointing at a model:
 
 - **Reasoning / "thinking" models need a much larger `max_tokens` cap.** Models

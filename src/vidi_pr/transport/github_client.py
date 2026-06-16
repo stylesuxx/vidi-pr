@@ -8,7 +8,7 @@ from typing import Any, Literal, Self
 from githubkit import GitHub
 from githubkit.auth import AppInstallationAuthStrategy
 from githubkit.cache import MemCacheStrategy
-from githubkit.exception import RequestFailed
+from githubkit.exception import RateLimitExceeded, RequestFailed
 
 from vidi_pr.config.repo import FetchResult, RepoConfigFetcher
 from vidi_pr.models.review import (
@@ -38,6 +38,24 @@ class GitHubClient:
         self._timeout = timeout
         self._cache_strategy = MemCacheStrategy()
         self._installations: dict[int, GitHub[AppInstallationAuthStrategy]] = {}
+        # Token mode (used by the dry-run inspector): all reads go through a
+        # single personal-access-token or unauthenticated client, regardless of
+        # the `installation_id` argument the read methods still carry.
+        self._token: str | None = None
+        self._token_mode = False
+        self._token_github: GitHub[Any] | None = None
+
+    @classmethod
+    def from_token(cls, token: str | None, *, timeout: float = 30.0) -> GitHubClient:
+        """
+        Build a read-only client authenticated by a personal access token, or
+        unauthenticated when `token` is None (public repos only). The `app_id`
+        and `private_key` are unused in this mode.
+        """
+        client = cls(app_id=0, private_key="", timeout=timeout)
+        client._token = token
+        client._token_mode = True
+        return client
 
     async def __aenter__(self) -> Self:
         return self
@@ -52,6 +70,7 @@ class GitHubClient:
 
     async def aclose(self) -> None:
         self._installations.clear()
+        self._token_github = None
 
     def for_installation(self, installation_id: int) -> RepoConfigFetcher:
         return _InstallationFetcher(self, installation_id)
@@ -231,7 +250,10 @@ class GitHubClient:
         response_etag = response.headers.get("ETag")
         return FetchResult.found(decoded, etag=response_etag)
 
-    def _gh(self, installation_id: int) -> GitHub[AppInstallationAuthStrategy]:
+    def _gh(self, installation_id: int) -> GitHub[Any]:
+        if self._token_mode:
+            return self._token_client()
+
         cached = self._installations.get(installation_id)
         if cached is not None:
             return cached
@@ -249,6 +271,16 @@ class GitHubClient:
         self._installations[installation_id] = github
 
         return github
+
+    def _token_client(self) -> GitHub[Any]:
+        if self._token_github is None:
+            self._token_github = (
+                GitHub(self._token, timeout=self._timeout, cache_strategy=self._cache_strategy)
+                if self._token
+                else GitHub(timeout=self._timeout, cache_strategy=self._cache_strategy)
+            )
+
+        return self._token_github
 
     async def _with_auth_retry(
         self,
@@ -316,6 +348,9 @@ def _message(exc: RequestFailed) -> str:
 def _map_error(exc: RequestFailed) -> GitHubError:
     status = exc.response.status_code
     message = _message(exc)
+    if isinstance(exc, RateLimitExceeded):
+        return GitHubTransientError(f"rate limited: {message}")
+
     if status == 404:
         return GitHubNotFound(message)
 

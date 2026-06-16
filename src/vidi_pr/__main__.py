@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import asyncio
+import os
 from importlib import resources
 
 import structlog
@@ -8,7 +10,8 @@ import uvicorn
 from alembic import command
 from alembic.config import Config as AlembicConfig
 
-from vidi_pr.config.operator import OperatorConfig
+from vidi_pr.config.operator import CONFIG_PATH_ENV, DEFAULT_CONFIG_PATH, OperatorConfig
+from vidi_pr.dryrun import run_dry_run
 from vidi_pr.llm.client import OpenAICompatClient
 from vidi_pr.llm.errors import LLMError
 from vidi_pr.orchestration.handlers import DEFAULT_BOT_LOGIN, OrchestrationHandler
@@ -127,7 +130,7 @@ async def _serve(operator_config: OperatorConfig) -> None:
         await database.aclose()
 
 
-def main() -> None:
+def _serve_main() -> None:
     operator_config = OperatorConfig.load()
     setup_logging(operator_config.logging)
     # Run Alembic synchronously before entering the asyncio loop; the env.py
@@ -135,6 +138,48 @@ def main() -> None:
     # an active loop.
     _run_migrations(make_database_url(operator_config.storage.db_path))
     asyncio.run(_serve(operator_config))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="vidi_pr")
+    subparsers = parser.add_subparsers(dest="command")
+
+    dry = subparsers.add_parser(
+        "dry-run",
+        help="Review a PR by URL and print what would be posted, without posting.",
+    )
+    dry.add_argument("url", help="PR URL or owner/repo#number")
+    dry.add_argument(
+        "--config",
+        default=os.environ.get(CONFIG_PATH_ENV, DEFAULT_CONFIG_PATH),
+        help="Path to a YAML config with at least an `llm` section.",
+    )
+    dry.add_argument(
+        "--dump-prompts",
+        action="store_true",
+        help="Also print the prompts sent to the model (to stderr).",
+    )
+    dry.add_argument(
+        "--context",
+        default=None,
+        help="Extra project context injected into the review prompt (for testing).",
+    )
+
+    args = parser.parse_args()
+
+    if args.command == "dry-run":
+        raise SystemExit(
+            asyncio.run(
+                run_dry_run(
+                    url=args.url,
+                    config_path=args.config,
+                    dump_prompts=args.dump_prompts,
+                    context=args.context,
+                )
+            )
+        )
+
+    _serve_main()
 
 
 if __name__ == "__main__":
